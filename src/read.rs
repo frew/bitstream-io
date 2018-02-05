@@ -25,9 +25,9 @@
 //!                          0x2D,0x5B,0x30,0x01,0x76,0xB4,0x62,0x88,
 //!                          0x7D,0x92];
 //!
-//! let mut cursor = Cursor::new(&flac);
+//! let mut cursor = Cursor::new(flac.clone());
 //! {
-//!     let mut reader = BitReader::<BE>::new(&mut cursor);
+//!     let mut reader = BitReader::<BE>::new(Box::new(cursor));
 //!
 //!     // stream marker
 //!     let mut file_header: [u8; 4] = [0, 0, 0, 0];
@@ -60,20 +60,10 @@
 //!     assert_eq!(bits_per_sample, 16);
 //!     assert_eq!(total_samples, 304844);
 //! }
-//!
-//! // STREAMINFO's MD5 sum
-//!
-//! // Note that the wrapped reader can be used once bitstream reading
-//! // is finished at exactly the position one would expect.
-//!
-//! let mut md5 = [0; 16];
-//! cursor.read_exact(&mut md5).unwrap();
-//! assert_eq!(&md5,
-//!     b"\xFA\xF2\x69\x2F\xFD\xEC\x2D\x5B\x30\x01\x76\xB4\x62\x88\x7D\x92");
-//! ```
 
 #![warn(missing_docs)]
 
+use std::boxed::Box;
 use std::io;
 
 use super::{Numeric, SignedNumeric, BitQueue,
@@ -85,14 +75,14 @@ use huffman::ReadHuffmanTree;
 /// This will read exactly as many whole bytes needed to return
 /// the requested number of bits.  It may cache up to a single partial byte
 /// but no more.
-pub struct BitReader<'a, E: Endianness> {
-    reader: &'a mut io::Read,
+pub struct BitReader<E: Endianness> {
+    reader: Box<io::Read>,
     bitqueue: BitQueue<E,u8>
 }
 
-impl<'a, E: Endianness> BitReader<'a, E> {
+impl<E: Endianness> BitReader<E> {
     /// Wraps a BitReader around something that implements `Read`
-    pub fn new(reader: &mut io::Read) -> BitReader<E> {
+    pub fn new(reader: Box<io::Read>) -> BitReader<E> {
         BitReader{reader: reader, bitqueue: BitQueue::new()}
     }
 
@@ -109,8 +99,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_bit().unwrap(), true);
     /// assert_eq!(reader.read_bit().unwrap(), false);
     /// assert_eq!(reader.read_bit().unwrap(), true);
@@ -125,8 +115,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{LittleEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<LittleEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_bit().unwrap(), true);
     /// assert_eq!(reader.read_bit().unwrap(), true);
     /// assert_eq!(reader.read_bit().unwrap(), true);
@@ -139,7 +129,7 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     #[inline(always)]
     pub fn read_bit(&mut self) -> Result<bool, io::Error> {
         if self.bitqueue.is_empty() {
-            self.bitqueue.set(read_byte(self.reader)?, 8);
+            self.bitqueue.set(read_byte(&mut self.reader)?, 8);
         }
         Ok(self.bitqueue.pop(1) == 1)
     }
@@ -158,8 +148,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read::<u8>(1).unwrap(), 0b1);
     /// assert_eq!(reader.read::<u8>(2).unwrap(), 0b01);
     /// assert_eq!(reader.read::<u8>(5).unwrap(), 0b10111);
@@ -169,8 +159,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{LittleEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<LittleEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read::<u8>(1).unwrap(), 0b1);
     /// assert_eq!(reader.read::<u8>(2).unwrap(), 0b11);
     /// assert_eq!(reader.read::<u8>(5).unwrap(), 0b10110);
@@ -180,8 +170,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0;10];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert!(reader.read::<u8>(9).is_err());    // can't read  9 bits to u8
     /// assert!(reader.read::<u16>(17).is_err());  // can't read 17 bits to u16
     /// assert!(reader.read::<u32>(33).is_err());  // can't read 33 bits to u32
@@ -231,8 +221,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert!(reader.skip(3).is_ok());
     /// assert_eq!(reader.read::<u8>(5).unwrap(), 0b10111);
     /// ```
@@ -241,8 +231,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{LittleEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<LittleEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
     /// assert!(reader.skip(3).is_ok());
     /// assert_eq!(reader.read::<u8>(5).unwrap(), 0b10110);
     /// ```
@@ -275,8 +265,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = b"foobar";
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert!(reader.skip(24).is_ok());
     /// let mut buf = [0;3];
     /// assert!(reader.read_bytes(&mut buf).is_ok());
@@ -307,8 +297,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b01110111, 0b11111110];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_unary0().unwrap(), 0);
     /// assert_eq!(reader.read_unary0().unwrap(), 3);
     /// assert_eq!(reader.read_unary0().unwrap(), 10);
@@ -318,8 +308,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{LittleEndian, BitReader};
     /// let data = [0b11101110, 0b01111111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<LittleEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_unary0().unwrap(), 0);
     /// assert_eq!(reader.read_unary0().unwrap(), 3);
     /// assert_eq!(reader.read_unary0().unwrap(), 10);
@@ -356,8 +346,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b10001000, 0b00000001];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_unary1().unwrap(), 0);
     /// assert_eq!(reader.read_unary1().unwrap(), 3);
     /// assert_eq!(reader.read_unary1().unwrap(), 10);
@@ -367,8 +357,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{LittleEndian, BitReader};
     /// let data = [0b00010001, 0b10000000];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<LittleEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_unary1().unwrap(), 0);
     /// assert_eq!(reader.read_unary1().unwrap(), 3);
     /// assert_eq!(reader.read_unary1().unwrap(), 10);
@@ -398,8 +388,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.byte_aligned(), true);
     /// assert!(reader.skip(1).is_ok());
     /// assert_eq!(reader.byte_aligned(), false);
@@ -419,8 +409,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0x00, 0xFF];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read::<u8>(4).unwrap(), 0);
     /// reader.byte_align();
     /// assert_eq!(reader.read::<u8>(8).unwrap(), 0xFF);
@@ -448,8 +438,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     ///          ('c', vec![1, 1, 0]),
     ///          ('d', vec![1, 1, 1])]).unwrap();
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_huffman(&tree).unwrap(), 'b');
     /// assert_eq!(reader.read_huffman(&tree).unwrap(), 'c');
     /// assert_eq!(reader.read_huffman(&tree).unwrap(), 'd');
@@ -467,7 +457,7 @@ impl<'a, E: Endianness> BitReader<'a, E> {
                     return Ok(value.clone())
                 }
                 &ReadHuffmanTree::Continue(ref tree) => {
-                    result = &tree[read_byte(self.reader)? as usize];
+                    result = &tree[read_byte(&mut self.reader)? as usize];
                 }
                 &ReadHuffmanTree::InvalidState => {panic!("invalid state");}
             }
@@ -482,8 +472,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b1010_0101, 0b0101_1010];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read::<u16>(9).unwrap(), 0b1010_0101_0);
     /// let (bits, value) = reader.into_unread();
     /// assert_eq!(bits, 7);
@@ -494,8 +484,8 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b1010_0101, 0b0101_1010];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read::<u16>(8).unwrap(), 0b1010_0101);
     /// let (bits, value) = reader.into_unread();
     /// assert_eq!(bits, 0);
@@ -507,7 +497,7 @@ impl<'a, E: Endianness> BitReader<'a, E> {
     }
 }
 
-impl<'a> BitReader<'a, BigEndian> {
+impl BitReader<BigEndian> {
     /// Reads a twos-complement signed value from the stream with
     /// the given number of bits.
     ///
@@ -522,8 +512,8 @@ impl<'a> BitReader<'a, BigEndian> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_signed::<i8>(4).unwrap(), -5);
     /// assert_eq!(reader.read_signed::<i8>(4).unwrap(), 7);
     /// ```
@@ -532,8 +522,8 @@ impl<'a> BitReader<'a, BigEndian> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{BigEndian, BitReader};
     /// let data = [0;10];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut r = BitReader::<BigEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut r = BitReader::<BigEndian>::new(Box::new(cursor));
     /// assert!(r.read_signed::<i8>(9).is_err());   // can't read 9 bits to i8
     /// assert!(r.read_signed::<i16>(17).is_err()); // can't read 17 bits to i16
     /// assert!(r.read_signed::<i32>(33).is_err()); // can't read 33 bits to i32
@@ -553,7 +543,7 @@ impl<'a> BitReader<'a, BigEndian> {
     }
 }
 
-impl<'a> BitReader<'a, LittleEndian> {
+impl BitReader<LittleEndian> {
     /// Reads a twos-complement signed value from the stream with
     /// the given number of bits.
     ///
@@ -568,8 +558,8 @@ impl<'a> BitReader<'a, LittleEndian> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{LittleEndian, BitReader};
     /// let data = [0b10110111];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut reader = BitReader::<LittleEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
     /// assert_eq!(reader.read_signed::<i8>(4).unwrap(), 7);
     /// assert_eq!(reader.read_signed::<i8>(4).unwrap(), -5);
     /// ```
@@ -578,8 +568,8 @@ impl<'a> BitReader<'a, LittleEndian> {
     /// use std::io::{Read, Cursor};
     /// use bitstream_io::{LittleEndian, BitReader};
     /// let data = [0;10];
-    /// let mut cursor = Cursor::new(&data);
-    /// let mut r = BitReader::<LittleEndian>::new(&mut cursor);
+    /// let mut cursor = Cursor::new(data);
+    /// let mut r = BitReader::<LittleEndian>::new(Box::new(cursor));
     /// assert!(r.read_signed::<i8>(9).is_err());   // can't read 9 bits to i8
     /// assert!(r.read_signed::<i16>(17).is_err()); // can't read 17 bits to i16
     /// assert!(r.read_signed::<i32>(33).is_err()); // can't read 33 bits to i32

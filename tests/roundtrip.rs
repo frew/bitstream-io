@@ -26,8 +26,8 @@ macro_rules! define_roundtrip {
                     writer.byte_align().unwrap();
                 }
                 {
-                    let mut c = Cursor::new(&output);
-                    let mut reader = BitReader::<$endianness>::new(&mut c);
+                    let mut c = Cursor::new(output);
+                    let mut reader = BitReader::<$endianness>::new(Box::new(c));
                     for value in 0..max {
                         assert_eq!(reader.read::<u32>(bits).unwrap(),
                                    value as u32);
@@ -48,8 +48,8 @@ macro_rules! define_roundtrip {
                     writer.byte_align().unwrap();
                 }
                 {
-                    let mut c = Cursor::new(&output);
-                    let mut reader = BitReader::<$endianness>::new(&mut c);
+                    let c = Cursor::new(output);
+                    let mut reader = BitReader::<$endianness>::new(Box::new(c));
                     for value in min..max {
                         assert_eq!(reader.read_signed::<i32>(bits).unwrap(),
                                    value as i32);
@@ -77,8 +77,8 @@ macro_rules! define_unary_roundtrip {
                 writer.byte_align().unwrap();
             }
             {
-                let mut c = Cursor::new(&output);
-                let mut reader = BitReader::<$endianness>::new(&mut c);
+                let c = Cursor::new(output);
+                let mut reader = BitReader::<$endianness>::new(Box::new(c));
                 for value in 0..1024 {
                     assert_eq!(reader.read_unary0().unwrap(), value);
                 }
@@ -93,8 +93,8 @@ macro_rules! define_unary_roundtrip {
                 writer.byte_align().unwrap();
             }
             {
-                let mut c = Cursor::new(&output);
-                let mut reader = BitReader::<$endianness>::new(&mut c);
+                let c = Cursor::new(output);
+                let mut reader = BitReader::<$endianness>::new(Box::new(c));
                 for value in 0..1024 {
                     assert_eq!(reader.read_unary1().unwrap(), value);
                 }

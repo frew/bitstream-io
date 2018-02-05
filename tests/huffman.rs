@@ -72,8 +72,8 @@ fn test_huffman_values() {
                  (Some(1), vec![1, 0]),
                  (Some(2), vec![1, 1, 0]),
                  (None, vec![1, 1, 1])]).unwrap();
-        let mut c = Cursor::new(&data);
-        let mut r = BitReader::<BE>::new(&mut c);
+        let mut c = Cursor::new(data);
+        let mut r = BitReader::<BE>::new(Box::new(c));
         assert_eq!(r.read_huffman(&tree).unwrap(), Some(1));
         assert_eq!(r.read_huffman(&tree).unwrap(), Some(2));
         assert_eq!(r.read_huffman(&tree).unwrap(), Some(0));
@@ -88,8 +88,8 @@ fn test_huffman_values() {
                  (Rc::new("bar".to_owned()), vec![1, 0]),
                  (Rc::new("baz".to_owned()), vec![1, 1, 0]),
                  (Rc::new("kelp".to_owned()), vec![1, 1, 1])]).unwrap();
-        let mut c = Cursor::new(&data);
-        let mut r = BitReader::<BE>::new(&mut c);
+        let mut c = Cursor::new(data);
+        let mut r = BitReader::<BE>::new(Box::new(c));
         assert_eq!(r.read_huffman(&tree).unwrap().deref(), "bar");
         assert_eq!(r.read_huffman(&tree).unwrap().deref(), "baz");
         assert_eq!(r.read_huffman(&tree).unwrap().deref(), "foo");
@@ -144,10 +144,10 @@ fn test_lengthy_huffman_values() {
         writer_le.byte_align().unwrap();
     }
     {
-        let mut cursor_be = Cursor::new(&data_be);
-        let mut cursor_le = Cursor::new(&data_le);
-        let mut reader_be = BitReader::new(&mut cursor_be);
-        let mut reader_le = BitReader::new(&mut cursor_le);
+        let mut cursor_be = Cursor::new(data_be);
+        let mut cursor_le = Cursor::new(data_le);
+        let mut reader_be = BitReader::new(Box::new(cursor_be));
+        let mut reader_le = BitReader::new(Box::new(cursor_le));
         for _ in 0..20 {
             for bits in 0..max_bits {
                 assert_eq!(reader_be.read_huffman(&read_tree_be).unwrap(),
