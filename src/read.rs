@@ -283,6 +283,49 @@ impl<E: Endianness> BitReader<E> {
         }
     }
 
+    /// Creates and returns a BitReader that reads the next `bits` bits,
+    /// removing them from this reader's stream
+    ///
+    /// # Errors
+    ///
+    /// Passes along any I/O error from the underlying stream.
+    ///
+    /// # Examples
+    /// ```
+    /// use std::io::{Read, Cursor};
+    /// use bitstream_io::{LittleEndian, BitReader};
+    /// let data = [0b01100111, 0b11111110];
+    /// let mut cursor = Cursor::new(data.clone());
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
+    /// assert_eq!(reader.read_bit().unwrap(), true);
+    /// let mut sub_reader = reader.create_sub_reader(7).unwrap();
+    /// assert_eq!(sub_reader.read_bit().unwrap(), true);
+    /// assert_eq!(sub_reader.read::<u8>(6).unwrap(), 0b011001);
+    /// assert!(sub_reader.read_bit().is_err());
+    /// assert_eq!(reader.read::<u8>(8).unwrap(), 0b11111110);
+    /// ```
+    pub fn create_sub_reader(&mut self, bits: u32) -> Result<BitReader<LittleEndian>, io::Error> {
+        let bytes = bits / 8;
+	let remainder_bits = bits % 8;
+	let remainder_bytes = if remainder_bits > 0 {
+            1
+	} else {
+            0
+        };
+	let mut new_bytes = vec![0; (bytes + remainder_bytes) as usize];
+	if remainder_bits > 0 {
+            // TODO: This only works for LE. Fix.
+            new_bytes[0] = self.read::<u8>(remainder_bits)? << (8 - remainder_bits);
+	}
+	self.read_bytes(&mut new_bytes[remainder_bytes as usize..(bytes + remainder_bytes) as usize])?;
+	
+	let new_cursor = io::Cursor::new(new_bytes);
+	let mut new_reader = BitReader::<LittleEndian>::new(Box::new(new_cursor));
+        // Shave off partial byte
+	new_reader.skip(8 - remainder_bits)?;
+        return Ok(new_reader);
+    }
+
     /// Counts the number of 1 bits in the stream until the next
     /// 0 bit and returns the amount read.
     /// Because this field is variably-sized and may be large,
