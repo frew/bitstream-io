@@ -66,7 +66,7 @@
 use std::boxed::Box;
 use std::io;
 
-use super::{Numeric, SignedNumeric, BitQueue,
+use super::{Numeric, SignedNumeric, BitQueue, BitWriter,
             Endianness, BigEndian, LittleEndian};
 use huffman::ReadHuffmanTree;
 
@@ -338,6 +338,77 @@ impl<E: Endianness> BitReader<E> {
         // Shave off partial byte
         if remainder_bits > 0 {
           new_reader.skip(8 - remainder_bits)?;
+        }
+        return Ok(new_reader);
+    }
+
+    fn copy_reader_to_writer(r: &mut BitReader<E>, w: &mut BitWriter<LittleEndian>) -> Result<(), io::Error> {
+        let mut buffer:Vec<u8> = vec![0;1];
+        let bq_len = r.bitqueue.len();
+        if bq_len > 0 {
+            w.write(bq_len, r.bitqueue.pop(bq_len))?;
+        }
+        loop {
+            let read_opt = r.reader.read_exact(&mut buffer);
+            match read_opt {
+                Ok(_) => {
+                    w.write_bytes(&buffer)?;
+                }
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::UnexpectedEof {
+                        break;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    /// Combines two bit readers into one bit reader. Consumes each of
+    /// the existing readers.
+    ///
+    /// # Errors
+    ///
+    /// Passes along any I/O error from the underlying stream.
+    ///
+    /// # Examples
+    /// ```
+    /// use std::io::{Read, Cursor};
+    /// use bitstream_io::{LittleEndian, BitReader};
+    /// let data = [0b01100111, 0b11111110];
+    /// let mut cursor = Cursor::new(data.clone());
+    /// let mut reader = BitReader::<LittleEndian>::new(Box::new(cursor));
+    /// let data1 = [0b10101010, 0b10010010];
+    /// let mut cursor1 = Cursor::new(data1.clone());
+    /// let mut reader1 = BitReader::<LittleEndian>::new(Box::new(cursor1));
+    /// assert_eq!(reader.read_bit().unwrap(), true);
+    /// assert_eq!(reader1.read_bit().unwrap(), false);
+    /// let mut concat_reader = reader.concatenate_reader(&mut reader1).unwrap();
+    /// let expected_data = [0b00110011, 0b11111111, 0b10101010];
+    /// let mut read_data: [u8; 3] = [0, 0, 0];
+    /// concat_reader.read_bytes(&mut read_data).unwrap();
+    /// assert_eq!(expected_data, read_data);
+    /// ```
+    pub fn concatenate_reader(&mut self, rhs:&mut BitReader<E>) -> Result<BitReader<LittleEndian>, io::Error> {
+        let lhs_bitqueue_bits = self.bitqueue.len();
+        let rhs_bitqueue_bits = rhs.bitqueue.len();
+        let total_bits = lhs_bitqueue_bits + rhs_bitqueue_bits;
+        let bit_offset = total_bits % 8;
+        let mut concatenate_buffer = Vec::new();
+        {
+          let mut w = BitWriter::<LittleEndian>::new(&mut concatenate_buffer);
+          if bit_offset > 0 {
+              w.write(8 - bit_offset, 0)?;
+          }
+          BitReader::<E>::copy_reader_to_writer(self, &mut w)?;
+          BitReader::<E>::copy_reader_to_writer(rhs, &mut w)?;
+        }
+	let new_cursor = io::Cursor::new(concatenate_buffer);
+	let mut new_reader = BitReader::<LittleEndian>::new(Box::new(new_cursor));
+        // Shave off partial byte
+        if bit_offset > 0 {
+          new_reader.skip(8 - bit_offset)?;
         }
         return Ok(new_reader);
     }
